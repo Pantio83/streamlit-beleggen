@@ -51,9 +51,7 @@ selected_criteria = st.sidebar.multiselect(
     "✅ Selecteer criteria voor analyse:",
     options=list(CRITERIA.keys()),
     default=standaard_criteria
-)st.sidebar.multiselect(
-    "Kies welke criteria je wilt meenemen in de analyse:",
-    list(CRITERIA.keys()),
+),
     default=list(CRITERIA.keys())
 )
 
