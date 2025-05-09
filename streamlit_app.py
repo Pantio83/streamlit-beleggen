@@ -31,7 +31,7 @@ def value_at_risk(returns, confidence_level=0.05):
 
 # --- Portefeuillebeheer ---
 def update_portfolio(portfolio, transaction):
-    return portfolio.append(transaction, ignore_index=True)
+    return pd.concat([portfolio, pd.DataFrame([transaction])], ignore_index=True)
 
 def calculate_portfolio_value(portfolio):
     total_value = 0
