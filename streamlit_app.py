@@ -1,94 +1,123 @@
+# streamlit_app.py
 import streamlit as st
 import yfinance as yf
 import pandas as pd
 import plotly.express as px
+import numpy as np
 
-# Functie om de fundamentele gegevens van een aandeel op te halen
+# --- Algemene instellingen ---
+st.set_page_config(page_title='Beleggingsdashboard', layout='wide')
+
+# --- Screenercriteria ---
+CRITERIA = {
+    "P/E": 21.4,
+    "P/B": 4.7,
+    "ROE": 20.0,
+    "FCF Yield": 4.8,
+    "Buybacks": True
+}
+
+CRITERIA_UITLEG = {
+    "P/E": "P/E (Price to Earnings): Lager dan 21.4 wijst op redelijke waardering t.o.v. winst",
+    "P/B": "P/B (Price to Book): Lager dan 4.7 betekent niet te duur in verhouding tot boekwaarde",
+    "ROE": "ROE (Return on Equity): Hoger dan 20% toont aan dat het bedrijf efficiënt winst genereert",
+    "FCF Yield": "FCF Yield (Free Cash Flow): Meer dan 4.8% betekent goede kasstroom ten opzichte van beurswaarde",
+    "Buybacks": "Aandeleninkoop: Bedrijf koopt actief eigen aandelen terug, wat aandeelhouderswaarde verhoogt"
+}
+
+# --- Hulpfuncties ---
 def get_stock_metrics(ticker):
-    stock = yf.Ticker(ticker)
-    data = stock.info
-
-    # Fundamentele data ophalen
-    pe_ratio = data.get('trailingPE', None)
-    pb_ratio = data.get('priceToBook', None)
-    roe = data.get('returnOnEquity', None)
-    fcf_yield = data.get('freeCashflow', None)
-    market_cap = data.get('marketCap', 1)
-    if fcf_yield is not None:
-        fcf_yield = fcf_yield / market_cap * 100  # Free Cash Flow Yield in %
-
-    # Aandeleninkoop controleren
-    buybacks = data.get('buyBacks', 0)
-
-    return {
-        'P/E': pe_ratio,
-        'P/B': pb_ratio,
-        'ROE': roe * 100 if roe is not None else None,
-        'FCF Yield (%)': fcf_yield,
-        'Buybacks': buybacks
-    }
-
-# Filter functie op basis van de gegeven selectiecriteria
-def filter_stocks(stocks):
-    filtered_stocks = []
-
-    for ticker in stocks:
-        try:
-            metrics = get_stock_metrics(ticker)
-            if (metrics['P/E'] is not None and metrics['P/E'] < 21.4 and
-                metrics['P/B'] is not None and metrics['P/B'] < 4.7 and
-                metrics['ROE'] is not None and metrics['ROE'] > 20 and
-                metrics['FCF Yield (%)'] is not None and metrics['FCF Yield (%)'] > 4.8 and
-                metrics['Buybacks'] > 0):
-                filtered_stocks.append((ticker, metrics))
-        except:
-            continue
-
-    return filtered_stocks
-
-# Bereken koersmomentum over een bepaalde periode (standaard 6 maanden)
-def get_price_momentum(ticker, period='6mo'):
-    stock_data = yf.download(ticker, period=period, progress=False)
-    if stock_data.empty:
+    try:
+        stock = yf.Ticker(ticker)
+        info = stock.info
+        pe = info.get("trailingPE", None)
+        pb = info.get("priceToBook", None)
+        roe = info.get("returnOnEquity", 0) * 100 if info.get("returnOnEquity") else None
+        fcf = info.get("freeCashflow", 0)
+        mc = info.get("marketCap", 1)
+        fcf_yield = (fcf / mc * 100) if mc > 0 else None
+        buybacks = info.get("buyBacks", 0) > 0
+        return {
+            "P/E": pe,
+            "P/B": pb,
+            "ROE": roe,
+            "FCF Yield": fcf_yield,
+            "Buybacks": buybacks
+        }
+    except:
         return None
-    price_change = (stock_data['Close'][-1] - stock_data['Close'][0]) / stock_data['Close'][0]
-    return price_change * 100
 
-# Functie om een grafiek van de koersbeweging te genereren
-def plot_stock_price(ticker, period='6mo'):
-    stock_data = yf.download(ticker, period=period, progress=False)
-    if stock_data.empty:
-        return None
-    fig = px.line(stock_data, x=stock_data.index, y='Close', title=f'{ticker} - Koers over {period}')
-    return fig
+def passes_criteria(metrics):
+    if not metrics:
+        return False
+    return (
+        metrics["P/E"] and metrics["P/E"] < CRITERIA["P/E"] and
+        metrics["P/B"] and metrics["P/B"] < CRITERIA["P/B"] and
+        metrics["ROE"] and metrics["ROE"] > CRITERIA["ROE"] and
+        metrics["FCF Yield"] and metrics["FCF Yield"] > CRITERIA["FCF Yield"] and
+        metrics["Buybacks"] == CRITERIA["Buybacks"]
+    )
 
-# Streamlit gebruikersinterface
-st.set_page_config(page_title='Beleggingsstrategie Dashboard', layout='wide')
-st.title('📈 Value + Momentum Beleggingsfilter')
+# --- Data: Voorbeeldlijsten van tickers ---
+sp500_tickers = ["AAPL", "MSFT", "GOOGL", "AMZN", "NVDA"]
+nasdaq_tickers = ["TSLA", "META", "ADBE", "INTC", "CSCO"]
+eu_tickers = ["SAP.DE", "ASML.AS", "SIE.DE", "AD.AS", "OR.PA"]
+all_tickers = list(set(sp500_tickers + nasdaq_tickers + eu_tickers))
 
-# Aandeleninvoer van de gebruiker
-tickers = st.text_input('Voer tickers in (gescheiden door een komma)', 'AAPL,MSFT,GOOG,AMZN,NVDA,META')
+# --- Pagina: Home ---
+if "page" not in st.session_state:
+    st.session_state.page = "Home"
 
-# Verkrijg tickers en filteren op basis van criteria
-tickers_list = [ticker.strip().upper() for ticker in tickers.split(',')]
-filtered = filter_stocks(tickers_list)
+st.sidebar.title("Navigatie")
+st.session_state.page = st.sidebar.radio("Ga naar", ["Home", "Screener", "Portefeuille"])
 
-if filtered:
-    for ticker, metrics in filtered:
-        st.subheader(f'📊 {ticker}')
-        st.write('**Fundamentele kenmerken:**')
-        st.write(metrics)
+if st.session_state.page == "Home":
+    st.title("📊 Beleggingsdashboard - Overzicht")
+    st.markdown("""
+    Hier krijg je aanbevelingen op basis van fundamentele criteria, momentum, en macro-economische trends.
 
-        momentum = get_price_momentum(ticker)
-        if momentum is not None:
-            st.write(f"**Momentum (6 maanden)**: {momentum:.2f}%")
-        else:
-            st.warning("Geen koersdata beschikbaar voor momentum.")
+    - 🔍 **Nieuwe aanbevelingen**: op basis van Value + Momentum-filter
+    - 📈 **Macrovooruitzichten**: inflatie, rente, werkloosheid
+    - ⚠️ **Aandachtspunten in portefeuille**: verkoopadvies of waarschuwingssignalen
+    """)
 
-        fig = plot_stock_price(ticker)
-        if fig:
-            st.plotly_chart(fig, use_container_width=True)
-        else:
-            st.warning("Geen grafiek beschikbaar.")
-else:
-    st.info("Geen aandelen voldoen aan alle criteria op dit moment.")
+elif st.session_state.page == "Screener":
+    st.title("📈 Screener: Aandelenfilter")
+    results = []
+    for ticker in all_tickers:
+        metrics = get_stock_metrics(ticker)
+        if passes_criteria(metrics):
+            results.append({"Ticker": ticker, **metrics})
+    if results:
+        df = pd.DataFrame(results)
+        df["Outlook"] = np.where(df["ROE"] > 25, "🟢 Positief", "🔴 Negatief")
+        for i, row in df.iterrows():
+            with st.expander(f"ℹ️ {row['Ticker']} - Details en uitleg"):
+                st.write(f"**Outlook**: {row['Outlook']}")
+                for key in CRITERIA:
+                    st.write(f"**{key}**: {row[key]} — {CRITERIA_UITLEG[key]}")
+    else:
+        st.warning("Geen aandelen gevonden die voldoen aan alle criteria.")
+
+elif st.session_state.page == "Portefeuille":
+    st.title("💼 Mijn Portefeuille")
+    if "portfolio" not in st.session_state:
+        st.session_state.portfolio = pd.DataFrame(columns=["Datum", "Ticker", "Aantal", "Koers", "Type"])
+
+    with st.form("Portefeuilleform"):
+        col1, col2, col3 = st.columns(3)
+        with col1:
+            ticker = st.text_input("Ticker", "AAPL")
+        with col2:
+            aantal = st.number_input("Aantal", min_value=1, value=10)
+        with col3:
+            koers = st.number_input("Koers", min_value=1.0, value=100.0)
+        trans_type = st.selectbox("Type transactie", ["Aankoop", "Verkoop"])
+        submit = st.form_submit_button("Toevoegen")
+        if submit:
+            nieuwe = pd.DataFrame([[pd.to_datetime("today"), ticker, aantal, koers, trans_type]],
+                                  columns=st.session_state.portfolio.columns)
+            st.session_state.portfolio = pd.concat([st.session_state.portfolio, nieuwe], ignore_index=True)
+
+    st.subheader("📄 Historiek")
+    st.dataframe(st.session_state.portfolio)
