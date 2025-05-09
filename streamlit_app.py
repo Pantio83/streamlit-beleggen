@@ -4,26 +4,58 @@ import yfinance as yf
 import pandas as pd
 import plotly.express as px
 import numpy as np
+import os
+import matplotlib.pyplot as plt
 
 # --- Algemene instellingen ---
 st.set_page_config(page_title='Beleggingsdashboard', layout='wide')
 
-# --- Screenercriteria ---
+# --- Screenercriteria (zachter, met scoresysteem) ---
 CRITERIA = {
-    "P/E": 21.4,
-    "P/B": 4.7,
-    "ROE": 20.0,
-    "FCF Yield": 4.8,
-    "Buybacks": True
+    "P/E": 35.0,
+    "P/B": 10.0,
+    "ROE": 15.0,
+    "FCF Yield": 2.0,
+    "Gross Margin": 50.0,
+    "Net Margin": 10.0,
+    "ROIC": 15.0,
+    "Revenue CAGR": 7.0,
+    "Net Debt/EBITDA": 3.0
 }
 
 CRITERIA_UITLEG = {
-    "P/E": "P/E (Price to Earnings): Lager dan 21.4 wijst op redelijke waardering t.o.v. winst",
-    "P/B": "P/B (Price to Book): Lager dan 4.7 betekent niet te duur in verhouding tot boekwaarde",
-    "ROE": "ROE (Return on Equity): Hoger dan 20% toont aan dat het bedrijf efficiënt winst genereert",
-    "FCF Yield": "FCF Yield (Free Cash Flow): Meer dan 4.8% betekent goede kasstroom ten opzichte van beurswaarde",
-    "Buybacks": "Aandeleninkoop: Bedrijf koopt actief eigen aandelen terug, wat aandeelhouderswaarde verhoogt"
+    "P/E": "P/E (Price to Earnings): Lager dan 35 wijst op redelijke waardering t.o.v. winst",
+    "P/B": "P/B (Price to Book): Lager dan 10 betekent niet te duur in verhouding tot boekwaarde",
+    "ROE": "ROE (Return on Equity): Hoger dan 15% toont aan dat het bedrijf efficiënt winst genereert",
+    "FCF Yield": "FCF Yield (Free Cash Flow): Meer dan 2% betekent goede kasstroom ten opzichte van beurswaarde",
+    "Buybacks": "Aandeleninkoop: Bedrijf koopt actief eigen aandelen terug, wat aandeelhouderswaarde verhoogt (bonuspunt)",
+    "Gross Margin": "Brutomarge: Toont hoe winstgevend een bedrijf is na directe kosten; hoger dan 50% is sterk",
+    "Net Margin": "Nettowinstmarge: Aandeel van de omzet dat als winst overblijft; >10% wijst op sterke winstgevendheid",
+    "ROIC": "ROIC (Return on Invested Capital): Meet rendement op geïnvesteerd kapitaal; >15% toont kapitaalefficiëntie",
+    "Revenue CAGR": "Omzetgroei (CAGR): Samengestelde jaarlijkse omzetgroei over 5 jaar; >7% is solide groei",
+    "Net Debt/EBITDA": "Netto schuld / EBITDA: Lager dan 3 duidt op beheersbare schuldenlast"
 }
+
+# --- Selecteer type aandeel en criteria via de sidebar ---
+st.sidebar.header("📊 Analyse-instellingen")
+aandeeltype = st.sidebar.selectbox("Kies type aandeel:", ["Waarde", "Groei", "Kwaliteit"])
+
+criteria_per_type = {
+    "Waarde": ["P/E", "P/B", "FCF Yield", "Buybacks", "Net Debt/EBITDA"],
+    "Groei": ["Revenue CAGR", "Gross Margin", "Net Margin", "ROIC"],
+    "Kwaliteit": ["ROE", "ROIC", "Net Margin", "Gross Margin", "FCF Yield"]
+}
+
+standaard_criteria = criteria_per_type[aandeeltype]
+selected_criteria = st.sidebar.multiselect(
+    "✅ Selecteer criteria voor analyse:",
+    options=list(CRITERIA.keys()),
+    default=standaard_criteria
+)st.sidebar.multiselect(
+    "Kies welke criteria je wilt meenemen in de analyse:",
+    list(CRITERIA.keys()),
+    default=list(CRITERIA.keys())
+)
 
 # --- Hulpfuncties ---
 def get_stock_metrics(ticker):
@@ -37,87 +69,64 @@ def get_stock_metrics(ticker):
         mc = info.get("marketCap", 1)
         fcf_yield = (fcf / mc * 100) if mc > 0 else None
         buybacks = info.get("buyBacks", 0) > 0
+        gross_margin = info.get("grossMargins", None) * 100 if info.get("grossMargins") else None
+        net_margin = info.get("netMargins", None) * 100 if info.get("netMargins") else None
+        roic = info.get("returnOnAssets", None) * 100 if info.get("returnOnAssets") else None
+        debt_to_ebitda = info.get("debtToEquity", None)  # tijdelijke benadering
+        revenue_cagr = None  # geen historische omzet via yfinance
+
         return {
             "P/E": pe,
             "P/B": pb,
             "ROE": roe,
             "FCF Yield": fcf_yield,
-            "Buybacks": buybacks
+            "Buybacks": buybacks,
+            "Gross Margin": gross_margin,
+            "Net Margin": net_margin,
+            "ROIC": roic,
+            "Net Debt/EBITDA": debt_to_ebitda,
+            "Revenue CAGR": revenue_cagr
         }
     except:
         return None
 
-def passes_criteria(metrics):
-    if not metrics:
-        return False
-    return (
-        metrics["P/E"] and metrics["P/E"] < CRITERIA["P/E"] and
-        metrics["P/B"] and metrics["P/B"] < CRITERIA["P/B"] and
-        metrics["ROE"] and metrics["ROE"] > CRITERIA["ROE"] and
-        metrics["FCF Yield"] and metrics["FCF Yield"] > CRITERIA["FCF Yield"] and
-        metrics["Buybacks"] == CRITERIA["Buybacks"]
-    )
+def score_stock(metrics):
+    score = 0
+    for crit in selected_criteria:
+        if crit == "Buybacks":
+            if metrics.get("Buybacks"):
+                score += 1
+        elif crit in metrics and metrics[crit] is not None:
+            if crit == "Net Debt/EBITDA":
+                if metrics[crit] < CRITERIA[crit]:
+                    score += 1
+            elif crit == "Revenue CAGR":
+                continue  # Placeholder - niet beschikbaar
+            elif metrics[crit] > CRITERIA[crit]:
+                score += 1
+    return score
 
-# --- Data: Voorbeeldlijsten van tickers ---
-sp500_tickers = ["AAPL", "MSFT", "GOOGL", "AMZN", "NVDA"]
-nasdaq_tickers = ["TSLA", "META", "ADBE", "INTC", "CSCO"]
-eu_tickers = ["SAP.DE", "ASML.AS", "SIE.DE", "AD.AS", "OR.PA"]
-all_tickers = list(set(sp500_tickers + nasdaq_tickers + eu_tickers))
-
-# --- Pagina: Home ---
-if "page" not in st.session_state:
-    st.session_state.page = "Home"
-
-st.sidebar.title("Navigatie")
-st.session_state.page = st.sidebar.radio("Ga naar", ["Home", "Screener", "Portefeuille"])
-
+# --- Homepage voorbeeldsuggesties per type (dynamisch gegenereerd) ---
 if st.session_state.page == "Home":
     st.title("📊 Beleggingsdashboard - Overzicht")
-    st.markdown("""
-    Hier krijg je aanbevelingen op basis van fundamentele criteria, momentum, en macro-economische trends.
 
-    - 🔍 **Nieuwe aanbevelingen**: op basis van Value + Momentum-filter
-    - 📈 **Macrovooruitzichten**: inflatie, rente, werkloosheid
-    - ⚠️ **Aandachtspunten in portefeuille**: verkoopadvies of waarschuwingssignalen
-    """)
-
-elif st.session_state.page == "Screener":
-    st.title("📈 Screener: Aandelenfilter")
-    results = []
-    for ticker in all_tickers:
+    st.subheader("💡 Voorbeelden per aandelentype (automatisch geselecteerd)")
+    top_scores = []
+    for ticker in ["AAPL", "MSFT", "GOOGL", "AMZN", "NVDA", "TSLA", "V", "MA", "KO", "PG", "VZ", "SHOP", "IBM", "SNOW"]:
         metrics = get_stock_metrics(ticker)
-        if passes_criteria(metrics):
-            results.append({"Ticker": ticker, **metrics})
-    if results:
-        df = pd.DataFrame(results)
-        df["Outlook"] = np.where(df["ROE"] > 25, "🟢 Positief", "🔴 Negatief")
-        for i, row in df.iterrows():
-            with st.expander(f"ℹ️ {row['Ticker']} - Details en uitleg"):
-                st.write(f"**Outlook**: {row['Outlook']}")
-                for key in CRITERIA:
-                    st.write(f"**{key}**: {row[key]} — {CRITERIA_UITLEG[key]}")
-    else:
-        st.warning("Geen aandelen gevonden die voldoen aan alle criteria.")
+        if metrics:
+            score = score_stock(metrics)
+            top_scores.append({"Ticker": ticker, "Score": score, **metrics})
 
-elif st.session_state.page == "Portefeuille":
-    st.title("💼 Mijn Portefeuille")
-    if "portfolio" not in st.session_state:
-        st.session_state.portfolio = pd.DataFrame(columns=["Datum", "Ticker", "Aantal", "Koers", "Type"])
+    df = pd.DataFrame(top_scores).sort_values("Score", ascending=False)
 
-    with st.form("Portefeuilleform"):
-        col1, col2, col3 = st.columns(3)
-        with col1:
-            ticker = st.text_input("Ticker", "AAPL")
-        with col2:
-            aantal = st.number_input("Aantal", min_value=1, value=10)
-        with col3:
-            koers = st.number_input("Koers", min_value=1.0, value=100.0)
-        trans_type = st.selectbox("Type transactie", ["Aankoop", "Verkoop"])
-        submit = st.form_submit_button("Toevoegen")
-        if submit:
-            nieuwe = pd.DataFrame([[pd.to_datetime("today"), ticker, aantal, koers, trans_type]],
-                                  columns=st.session_state.portfolio.columns)
-            st.session_state.portfolio = pd.concat([st.session_state.portfolio, nieuwe], ignore_index=True)
+    def suggest(df, criteria):
+        return df[[c for c in criteria if c in df.columns] + ["Ticker", "Score"]].sort_values("Score", ascending=False).head(3)["Ticker"].tolist()
 
-    st.subheader("📄 Historiek")
-    st.dataframe(st.session_state.portfolio)
+    st.markdown(f"**Waarde aandelen:** {', '.join(suggest(df, criteria_per_type['Waarde']))}")
+    st.markdown(f"**Groei aandelen:** {', '.join(suggest(df, criteria_per_type['Groei']))}")
+    st.markdown(f"**Kwaliteit aandelen:** {', '.join(suggest(df, criteria_per_type['Kwaliteit']))}")
+    for groep, tickers in voorbeeldsuggesties.items():
+        st.markdown(f"**{groep} aandelen:** {', '.join(tickers)}")
+
+# De rest van de code blijft ongewijzigd...
