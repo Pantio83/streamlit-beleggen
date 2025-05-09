@@ -51,8 +51,6 @@ selected_criteria = st.sidebar.multiselect(
     "✅ Selecteer criteria voor analyse:",
     options=list(CRITERIA.keys()),
     default=standaard_criteria
-),
-    default=list(CRITERIA.keys())
 )
 
 # --- Hulpfuncties ---
