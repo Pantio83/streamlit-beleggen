@@ -1,111 +1,94 @@
-
-# streamlit_app.py
 import streamlit as st
-import pandas as pd
 import yfinance as yf
-import numpy as np
+import pandas as pd
 import plotly.express as px
-import datetime
 
-# --- Functies voor Data Ophalen ---
-def get_stock_data(ticker, start_date='2014-01-01'):
-    data = yf.download(ticker, start=start_date)
-    data.dropna(inplace=True)
-    return data
+# Functie om de fundamentele gegevens van een aandeel op te halen
+def get_stock_metrics(ticker):
+    stock = yf.Ticker(ticker)
+    data = stock.info
 
-def get_macro_indicators():
-    # Placeholder: vervang door echte data of API
+    # Fundamentele data ophalen
+    pe_ratio = data.get('trailingPE', None)
+    pb_ratio = data.get('priceToBook', None)
+    roe = data.get('returnOnEquity', None)
+    fcf_yield = data.get('freeCashflow', None)
+    market_cap = data.get('marketCap', 1)
+    if fcf_yield is not None:
+        fcf_yield = fcf_yield / market_cap * 100  # Free Cash Flow Yield in %
+
+    # Aandeleninkoop controleren
+    buybacks = data.get('buyBacks', 0)
+
     return {
-        'Rente': 1.5,
-        'Inflatie': 3.2,
-        'Werkloosheid': 4.5
+        'P/E': pe_ratio,
+        'P/B': pb_ratio,
+        'ROE': roe * 100 if roe is not None else None,
+        'FCF Yield (%)': fcf_yield,
+        'Buybacks': buybacks
     }
 
-# --- Risico Maatstaven ---
-def calculate_sharpe_ratio(returns, risk_free_rate=0.02):
-    excess_returns = returns.mean() - risk_free_rate / 252
-    return excess_returns / returns.std()
+# Filter functie op basis van de gegeven selectiecriteria
+def filter_stocks(stocks):
+    filtered_stocks = []
 
-def value_at_risk(returns, confidence_level=0.05):
-    return np.percentile(returns, 100 * confidence_level)
-
-# --- Portefeuillebeheer ---
-def update_portfolio(portfolio, transaction):
-    return pd.concat([portfolio, pd.DataFrame([transaction])], ignore_index=True)
-
-def calculate_portfolio_value(portfolio):
-    total_value = 0
-    for index, row in portfolio.iterrows():
+    for ticker in stocks:
         try:
-            data = get_stock_data(row['Ticker'])
-            price = data['Close'][-1]
-            total_value += row['Shares'] * price
+            metrics = get_stock_metrics(ticker)
+            if (metrics['P/E'] is not None and metrics['P/E'] < 21.4 and
+                metrics['P/B'] is not None and metrics['P/B'] < 4.7 and
+                metrics['ROE'] is not None and metrics['ROE'] > 20 and
+                metrics['FCF Yield (%)'] is not None and metrics['FCF Yield (%)'] > 4.8 and
+                metrics['Buybacks'] > 0):
+                filtered_stocks.append((ticker, metrics))
         except:
             continue
-    return total_value
 
-def portfolio_returns(portfolio):
-    returns = []
-    for ticker in portfolio['Ticker'].unique():
-        data = get_stock_data(ticker)
-        ret = data['Close'].pct_change().dropna()
-        returns.append(ret)
-    return pd.concat(returns, axis=1).mean(axis=1)
+    return filtered_stocks
 
-# --- Streamlit Layout ---
-st.set_page_config(page_title="Langetermijn Beleggen", layout="wide")
-st.title("📈 Langetermijn Beleggingsdashboard")
+# Bereken koersmomentum over een bepaalde periode (standaard 6 maanden)
+def get_price_momentum(ticker, period='6mo'):
+    stock_data = yf.download(ticker, period=period, progress=False)
+    if stock_data.empty:
+        return None
+    price_change = (stock_data['Close'][-1] - stock_data['Close'][0]) / stock_data['Close'][0]
+    return price_change * 100
 
-# Macro indicatoren
-st.subheader("🌐 Macro Indicatoren")
-macro = get_macro_indicators()
-st.write(macro)
+# Functie om een grafiek van de koersbeweging te genereren
+def plot_stock_price(ticker, period='6mo'):
+    stock_data = yf.download(ticker, period=period, progress=False)
+    if stock_data.empty:
+        return None
+    fig = px.line(stock_data, x=stock_data.index, y='Close', title=f'{ticker} - Koers over {period}')
+    return fig
 
-# Portefeuille Initialisatie
-portfolio_cols = ['Date', 'Ticker', 'Shares', 'Price', 'Transaction Type']
-if 'portfolio' not in st.session_state:
-    st.session_state.portfolio = pd.DataFrame(columns=portfolio_cols)
+# Streamlit gebruikersinterface
+st.set_page_config(page_title='Beleggingsstrategie Dashboard', layout='wide')
+st.title('📈 Value + Momentum Beleggingsfilter')
 
-# Transactie Formulier
-st.subheader("💼 Voer Transactie In")
-with st.form("transaction_form"):
-    col1, col2, col3 = st.columns(3)
-    with col1:
-        ticker = st.text_input("Ticker", value="AAPL")
-    with col2:
-        shares = st.number_input("Aantal Aandelen", min_value=1, value=10)
-    with col3:
-        price = st.number_input("Koers", min_value=0.01, value=100.0)
-    trans_type = st.selectbox("Type", ["Aankoop", "Verkoop"])
-    submitted = st.form_submit_button("Toevoegen")
+# Aandeleninvoer van de gebruiker
+tickers = st.text_input('Voer tickers in (gescheiden door een komma)', 'AAPL,MSFT,GOOG,AMZN,NVDA,META')
 
-    if submitted:
-        transaction = {
-            'Date': pd.to_datetime(datetime.date.today()),
-            'Ticker': ticker.upper(),
-            'Shares': shares,
-            'Price': price,
-            'Transaction Type': trans_type
-        }
-        st.session_state.portfolio = update_portfolio(st.session_state.portfolio, transaction)
-        st.success("✅ Transactie toegevoegd!")
+# Verkrijg tickers en filteren op basis van criteria
+tickers_list = [ticker.strip().upper() for ticker in tickers.split(',')]
+filtered = filter_stocks(tickers_list)
 
-# Portfolio Overzicht
-st.subheader("📊 Portefeuille Overzicht")
-portfolio = st.session_state.portfolio
-if not portfolio.empty:
-    st.dataframe(portfolio)
+if filtered:
+    for ticker, metrics in filtered:
+        st.subheader(f'📊 {ticker}')
+        st.write('**Fundamentele kenmerken:**')
+        st.write(metrics)
 
-    value = calculate_portfolio_value(portfolio)
-    st.metric("Totale Portefeuillewaarde", f"€ {value:,.2f}")
+        momentum = get_price_momentum(ticker)
+        if momentum is not None:
+            st.write(f"**Momentum (6 maanden)**: {momentum:.2f}%")
+        else:
+            st.warning("Geen koersdata beschikbaar voor momentum.")
 
-    returns = portfolio_returns(portfolio)
-    sharpe = calculate_sharpe_ratio(returns)
-    var = value_at_risk(returns)
-    
-    st.write(f"🔍 Sharpe Ratio: {sharpe:.2f}")
-    st.write(f"⚠️ Value at Risk (5%): {var:.2%}")
-
-    st.line_chart(returns.cumsum(), use_container_width=True)
+        fig = plot_stock_price(ticker)
+        if fig:
+            st.plotly_chart(fig, use_container_width=True)
+        else:
+            st.warning("Geen grafiek beschikbaar.")
 else:
-    st.info("Voeg eerst een transactie toe om je portefeuille op te bouwen.")
+    st.info("Geen aandelen voldoen aan alle criteria op dit moment.")
