@@ -50,6 +50,8 @@ standaard_criteria = criteria_per_type[aandeeltype]
 selected_criteria = st.sidebar.multiselect(
     "✅ Selecteer criteria voor analyse:",
     options=list(CRITERIA.keys()),
+    default=[c for c in standaard_criteria if c in CRITERIA.keys()]
+)),
     default=standaard_criteria
 )
 
@@ -103,7 +105,7 @@ def score_stock(metrics):
                 if metrics[crit] < CRITERIA[crit]:
                     score += 1
             elif crit == "Revenue CAGR":
-                continue
+            continue  # Revenue CAGR wordt momenteel niet berekend en telt dus niet mee
             elif metrics[crit] > CRITERIA[crit]:
                 score += 1
     return score
@@ -123,7 +125,8 @@ if st.session_state.page == "Home":
             top_scores.append({"Ticker": ticker, "Score": score, **metrics})
     df = pd.DataFrame(top_scores).sort_values("Score", ascending=False)
     def suggest(df, criteria):
-        return df[[c for c in criteria if c in df.columns] + ["Ticker", "Score"]].sort_values("Score", ascending=False).head(3)["Ticker"].tolist()
+    kolommen = [c for c in criteria if c in df.columns]
+    return df[kolommen + ["Ticker", "Score"]].sort_values("Score", ascending=False).head(3)["Ticker"].tolist() + ["Ticker", "Score"]].sort_values("Score", ascending=False).head(3)["Ticker"].tolist()
     st.subheader("💡 Aandelen per type (top 3)")
     st.markdown(f"**Waarde aandelen:** {', '.join(suggest(df, criteria_per_type['Waarde']))}")
     st.markdown(f"**Groei aandelen:** {', '.join(suggest(df, criteria_per_type['Groei']))}")
