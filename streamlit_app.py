@@ -51,8 +51,6 @@ selected_criteria = st.sidebar.multiselect(
     "✅ Selecteer criteria voor analyse:",
     options=list(CRITERIA.keys()),
     default=[c for c in standaard_criteria if c in CRITERIA.keys()]
-)),
-    default=standaard_criteria
 )
 
 # --- Pagina selectie ---
@@ -105,7 +103,7 @@ def score_stock(metrics):
                 if metrics[crit] < CRITERIA[crit]:
                     score += 1
             elif crit == "Revenue CAGR":
-            continue  # Revenue CAGR wordt momenteel niet berekend en telt dus niet mee
+                continue  # Revenue CAGR wordt momenteel niet berekend en telt dus niet mee
             elif metrics[crit] > CRITERIA[crit]:
                 score += 1
     return score
@@ -125,68 +123,5 @@ if st.session_state.page == "Home":
             top_scores.append({"Ticker": ticker, "Score": score, **metrics})
     df = pd.DataFrame(top_scores).sort_values("Score", ascending=False)
     def suggest(df, criteria):
-    kolommen = [c for c in criteria if c in df.columns]
-    return df[kolommen + ["Ticker", "Score"]].sort_values("Score", ascending=False).head(3)["Ticker"].tolist() + ["Ticker", "Score"]].sort_values("Score", ascending=False).head(3)["Ticker"].tolist()
-    st.subheader("💡 Aandelen per type (top 3)")
-    st.markdown(f"**Waarde aandelen:** {', '.join(suggest(df, criteria_per_type['Waarde']))}")
-    st.markdown(f"**Groei aandelen:** {', '.join(suggest(df, criteria_per_type['Groei']))}")
-    st.markdown(f"**Kwaliteit aandelen:** {', '.join(suggest(df, criteria_per_type['Kwaliteit']))}")
-
-# --- Screener pagina ---
-elif st.session_state.page == "Screener":
-    st.title("📈 Screener")
-    resultaten = []
-    for ticker in tickers:
-        metrics = get_stock_metrics(ticker)
-        if metrics:
-            score = score_stock(metrics)
-            resultaten.append({"Ticker": ticker, **metrics, "Score": score})
-    if resultaten:
-        df = pd.DataFrame(resultaten).sort_values("Score", ascending=False)
-        st.dataframe(df.set_index("Ticker"))
-    else:
-        st.info("Geen aandelen voldoen aan de gekozen criteria.")
-
-# --- Portefeuille pagina ---
-elif st.session_state.page == "Portefeuille":
-    st.title("💼 Mijn Portefeuille")
-    if "portfolio" not in st.session_state:
-        st.session_state.portfolio = pd.DataFrame(columns=["Datum", "Ticker", "Aantal", "Koers", "Type"])
-    with st.form("transacties"):
-        col1, col2, col3 = st.columns(3)
-        with col1:
-            ticker = st.text_input("Ticker", "AAPL")
-        with col2:
-            aantal = st.number_input("Aantal", 1, step=1)
-        with col3:
-            koers = st.number_input("Koers", 1.0)
-        trans_type = st.selectbox("Type transactie", ["Aankoop", "Verkoop"])
-        toevoegen = st.form_submit_button("Toevoegen")
-        if toevoegen:
-            nieuwe = pd.DataFrame([[pd.to_datetime("today"), ticker, aantal, koers, trans_type]], columns=st.session_state.portfolio.columns)
-            st.session_state.portfolio = pd.concat([st.session_state.portfolio, nieuwe], ignore_index=True)
-    st.subheader("📄 Historiek")
-    st.dataframe(st.session_state.portfolio)
-
-# --- Evaluatie pagina ---
-elif st.session_state.page == "Evaluatie":
-    st.title("📊 Evaluatie van posities")
-    if not st.session_state.get("portfolio", pd.DataFrame()).empty:
-        bezit_tickers = st.session_state.portfolio["Ticker"].unique()
-        overzicht = []
-        for t in bezit_tickers:
-            aankopen = st.session_state.portfolio.query("Ticker == @t and Type == 'Aankoop'").sort_values("Datum")
-            if aankopen.empty:
-                continue
-            aankoop_koers = aankopen.iloc[-1]["Koers"]
-            metrics = get_stock_metrics(t)
-            koers_data = yf.download(t, period="1d", progress=False)
-            huidige_koers = koers_data["Close"].iloc[-1] if not koers_data.empty else None
-            rendement = ((huidige_koers - aankoop_koers) / aankoop_koers * 100) if huidige_koers else None
-            if metrics:
-                score = score_stock(metrics)
-                overzicht.append({"Ticker": t, **metrics, "Score": score, "Aankoopkoers": aankoop_koers, "Huidige koers": huidige_koers, "Rendement %": rendement})
-        if overzicht:
-            st.dataframe(pd.DataFrame(overzicht).set_index("Ticker"))
-        else:
-            st.info("Geen geldige posities gevonden.")
+        kolommen = [c for c in criteria if c in df.columns]
+        return df[kolommen + ["Ticker", "Score"]].sort_values("Score", ascending=False).head(3)["Ticker"].tolist()
